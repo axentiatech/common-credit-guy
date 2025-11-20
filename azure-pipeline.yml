@@ -1,0 +1,56 @@
+trigger:
+  - develop
+resources:
+  - repo: self
+
+variables:
+  AgentPool: 'common-credit-guy-k8s'
+  dockerRegistryServiceConnection: 'mindpath-acr-dev'
+  imageRepository: 'common-credit-guy'
+  containerRegistry: 'mindpathregistrydev.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  tag: '$(Build.BuildId)'
+
+stages:
+  - stage: Build
+    displayName: Build and push stage
+    jobs:
+      - job: Build
+        displayName: Build
+        pool: $(AgentPool)
+        steps:
+          - task: Docker@2
+            displayName: Build and push an image to azure container registry
+            inputs:
+              command: buildAndPush
+              repository: $(imageRepository)
+              dockerfile: $(dockerfilePath)
+              containerRegistry: $(dockerRegistryServiceConnection)
+              tags: |
+                $(tag)
+                latest
+
+  - stage: DEV
+    variables:
+    - group: common-credit-guy
+    jobs:
+    - deployment: Dev
+      environment:
+       name: Dev
+      pool: 'common-credit-guy-k8s'
+      strategy:
+        runOnce:
+          deploy:
+           steps:
+            - task: SSH@0
+              inputs:
+                sshEndpoint: 'proxy-vpn-k8s'
+                runOptions: 'commands'
+                commands: |
+                  echo "===============Updating Deployments================"
+                    kubectl set image deployment/common-credit-guy common-credit-guy=$(ACR_DEV)/$(IMAGE):$(Build.BuildId)
+                  printf "#################UPDATING OR ADDING  VARIABLE######"
+                    kubectl set env deployment/common-credit-guy 
+                  printf "###############List All Environment################"
+                    kubectl set env deployment/common-credit-guy  --list
+                readyTimeout: '20000'
